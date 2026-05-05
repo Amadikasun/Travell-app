@@ -30,6 +30,7 @@ fun ImportChoiceScreen(
     tripId: Int,
     tripViewModel: TripViewModel,
     onOpenSearch: () -> Unit,          // → AddAttractionScreen (OSM search)
+    onOpenSharedLink: () -> Unit,      // → SharedLinkImportScreen
     onImportDone: () -> Unit,          // → back to AttractionsScreen
     onBack: () -> Unit
 ) {
@@ -78,52 +79,35 @@ fun ImportChoiceScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Option A – Google Maps Takeout
+            // Option A – Sdílený odkaz (nejpohodlnější)
+            ChoiceCard(
+                icon = Icons.Default.Share,
+                iconTint = MaterialTheme.colorScheme.primary,
+                title = "Vložit sdílený odkaz ze Google Maps",
+                description = "Sdílejte seznam z Google Maps a vložte odkaz sem. Aplikace seznam sama načte – žádný export, žádné soubory.",
+                badge = "Nejjednodušší",
+                onClick = onOpenSharedLink
+            )
+
+            // Option B – Google Takeout JSON
             ChoiceCard(
                 icon = Icons.Default.FileDownload,
-                iconTint = MaterialTheme.colorScheme.primary,
-                title = "Importovat ze seznamu Google Maps",
-                description = "Nahrajte JSON soubor stažený z Google Takeout a vyberte, která místa chcete přidat do výletu. Jednorázový import – bez psaní.",
-                badge = "Doporučeno",
+                iconTint = MaterialTheme.colorScheme.secondary,
+                title = "Importovat ze souboru (Google Takeout)",
+                description = "Jednorázový import JSON souboru z Google Takeout. Stáhnete archiv jednou a aplikace načte všechna uložená místa.",
+                badge = null,
                 onClick = { showTakeoutFlow = true }
             )
 
-            // Option B – OSM search
+            // Option C – OSM search
             ChoiceCard(
                 icon = Icons.Default.Search,
-                iconTint = MaterialTheme.colorScheme.secondary,
+                iconTint = MaterialTheme.colorScheme.tertiary,
                 title = "Vyhledat místo (OpenStreetMap)",
-                description = "Vyhledejte jakékoliv místo na světě přímo v aplikaci. Název, adresa a souřadnice se doplní automaticky.",
+                description = "Vyhledejte jakékoliv místo na světě přímo v aplikaci. Název, adresa a GPS se doplní automaticky.",
                 badge = null,
                 onClick = onOpenSearch
             )
-
-            Spacer(Modifier.height(8.dp))
-
-            // Tip for Takeout
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        "JSON soubor ze Google Maps získáte na takeout.google.com → vyberte Google Maps → stáhněte archiv. Soubor se jmenuje \"Saved Places.json\" nebo \"Uložená místa.json\".",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
         }
     }
 }

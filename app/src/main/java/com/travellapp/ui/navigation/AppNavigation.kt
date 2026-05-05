@@ -26,6 +26,9 @@ sealed class Screen(val route: String) {
     object ImportChoice : Screen("import_choice/{tripId}") {
         fun createRoute(tripId: Int) = "import_choice/$tripId"
     }
+    object SharedLinkImport : Screen("shared_link/{tripId}") {
+        fun createRoute(tripId: Int) = "shared_link/$tripId"
+    }
     object AddAttraction : Screen("add_attraction/{tripId}?attractionId={attractionId}") {
         fun createRoute(tripId: Int, attractionId: Int? = null) =
             if (attractionId != null) "add_attraction/$tripId?attractionId=$attractionId"
@@ -129,7 +132,27 @@ fun AppNavigation() {
                 onOpenSearch = {
                     navController.navigate(Screen.AddAttraction.createRoute(tripId))
                 },
+                onOpenSharedLink = {
+                    navController.navigate(Screen.SharedLinkImport.createRoute(tripId))
+                },
                 onImportDone = {
+                    navController.navigate(Screen.Attractions.createRoute(tripId)) {
+                        popUpTo(Screen.Attractions.createRoute(tripId)) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Screen.SharedLinkImport.route,
+            arguments = listOf(navArgument("tripId") { type = NavType.IntType })
+        ) { backStack ->
+            val tripId = backStack.arguments!!.getInt("tripId")
+            SharedLinkImportScreen(
+                tripId = tripId,
+                tripViewModel = tripViewModel,
+                onDone = {
                     navController.navigate(Screen.Attractions.createRoute(tripId)) {
                         popUpTo(Screen.Attractions.createRoute(tripId)) { inclusive = true }
                     }
