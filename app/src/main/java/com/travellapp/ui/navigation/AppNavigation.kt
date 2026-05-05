@@ -23,6 +23,9 @@ sealed class Screen(val route: String) {
     object Attractions : Screen("attractions/{tripId}") {
         fun createRoute(tripId: Int) = "attractions/$tripId"
     }
+    object ImportChoice : Screen("import_choice/{tripId}") {
+        fun createRoute(tripId: Int) = "import_choice/$tripId"
+    }
     object AddAttraction : Screen("add_attraction/{tripId}?attractionId={attractionId}") {
         fun createRoute(tripId: Int, attractionId: Int? = null) =
             if (attractionId != null) "add_attraction/$tripId?attractionId=$attractionId"
@@ -61,7 +64,9 @@ fun AppNavigation() {
                 authViewModel = authViewModel,
                 onNewTrip = { navController.navigate(Screen.TripSetup.createRoute()) },
                 onEditTrip = { tripId -> navController.navigate(Screen.TripSetup.createRoute(tripId)) },
-                onOpenAttractions = { tripId -> navController.navigate(Screen.Attractions.createRoute(tripId)) },
+                onOpenAttractions = { tripId ->
+                    navController.navigate(Screen.Attractions.createRoute(tripId))
+                },
                 onSignOut = {
                     authViewModel.signOut()
                     navController.navigate(Screen.Login.route) {
@@ -99,13 +104,35 @@ fun AppNavigation() {
             AttractionsScreen(
                 tripId = tripId,
                 tripViewModel = tripViewModel,
-                onAddAttraction = { navController.navigate(Screen.AddAttraction.createRoute(tripId)) },
+                onAddAttraction = {
+                    navController.navigate(Screen.ImportChoice.createRoute(tripId))
+                },
                 onEditAttraction = { attractionId ->
                     navController.navigate(Screen.AddAttraction.createRoute(tripId, attractionId))
                 },
                 onGenerateItinerary = {
                     tripViewModel.generateItinerary()
                     navController.navigate(Screen.Itinerary.createRoute(tripId))
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Screen.ImportChoice.route,
+            arguments = listOf(navArgument("tripId") { type = NavType.IntType })
+        ) { backStack ->
+            val tripId = backStack.arguments!!.getInt("tripId")
+            ImportChoiceScreen(
+                tripId = tripId,
+                tripViewModel = tripViewModel,
+                onOpenSearch = {
+                    navController.navigate(Screen.AddAttraction.createRoute(tripId))
+                },
+                onImportDone = {
+                    navController.navigate(Screen.Attractions.createRoute(tripId)) {
+                        popUpTo(Screen.Attractions.createRoute(tripId)) { inclusive = true }
+                    }
                 },
                 onBack = { navController.popBackStack() }
             )

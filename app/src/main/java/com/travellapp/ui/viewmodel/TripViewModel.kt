@@ -8,6 +8,7 @@ import com.travellapp.data.model.Itinerary
 import com.travellapp.data.model.Trip
 import com.travellapp.data.repository.TripRepository
 import com.travellapp.util.ItineraryPlanner
+import com.travellapp.util.TakeoutPlace
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -70,6 +71,8 @@ class TripViewModel @Inject constructor(
         type: AttractionType,
         durationMinutes: Int,
         address: String,
+        lat: Double = 0.0,
+        lon: Double = 0.0,
         notes: String
     ) {
         val tripId = _currentTripId.value ?: return
@@ -81,9 +84,32 @@ class TripViewModel @Inject constructor(
                     type = type,
                     estimatedDurationMinutes = durationMinutes,
                     address = address,
+                    latitude = lat,
+                    longitude = lon,
                     notes = notes
                 )
             )
+        }
+    }
+
+    fun importAttractions(places: List<TakeoutPlace>) {
+        val tripId = _currentTripId.value ?: return
+        viewModelScope.launch {
+            places.forEach { place ->
+                val type = if (AttractionType.isLargePark(place.name))
+                    AttractionType.LARGE_PARK else AttractionType.REGULAR
+                repository.insertAttraction(
+                    Attraction(
+                        tripId = tripId,
+                        name = place.name,
+                        type = type,
+                        estimatedDurationMinutes = type.defaultDurationMinutes,
+                        address = place.address,
+                        latitude = place.lat,
+                        longitude = place.lon
+                    )
+                )
+            }
         }
     }
 
