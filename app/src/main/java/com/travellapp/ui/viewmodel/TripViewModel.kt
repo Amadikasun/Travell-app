@@ -27,7 +27,7 @@ class TripViewModel @Inject constructor(
 
     val currentTrip: StateFlow<Trip?> = _currentTripId
         .flatMapLatest { id ->
-            if (id != null) flow { emit(repository.getTripById(id)) } else flowOf(null)
+            if (id != null) flow<Trip?> { emit(repository.getTripById(id)) } else flowOf(null)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
