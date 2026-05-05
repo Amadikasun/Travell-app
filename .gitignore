@@ -1,0 +1,11 @@
+.gradle/
+build/
+app/build/
+*.apk
+!TravelPlanner-debug.apk
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
