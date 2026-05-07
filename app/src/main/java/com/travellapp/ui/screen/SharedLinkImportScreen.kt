@@ -2,7 +2,7 @@ package com.travellapp.ui.screen
 
 import android.annotation.SuppressLint
 import android.webkit.JavascriptInterface
-import android.webkit.WebSettings
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
@@ -24,41 +24,47 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.travellapp.data.model.AttractionType
 import com.travellapp.ui.viewmodel.TripViewModel
 import com.travellapp.util.ParsedMapPlace
 import com.travellapp.util.TakeoutPlace
 import org.json.JSONObject
+import java.net.URLDecoder
 
-// JavaScript injected after page renders – calls Android.onResult() directly inside IIFE
+// Extracts place list from Google Maps saved list page.
+// Calls Android.onResult() inside IIFE. Returns debug title so error messages are informative.
 private val EXTRACTOR_JS = """
 (function() {
     try {
         var places = [];
         var seen = {};
 
-        var selectors = ['.Nv2PK','.hfpxzc','[data-index]','[jsaction*="placeCard"]',
-                         '[data-result-index]','.m6QErb [role="article"]'];
+        // Strategy 1: standard place card selectors
+        var selectors = [
+            '.Nv2PK','.hfpxzc','[data-index]','[jsaction*="placeCard"]',
+            '[data-result-index]','.m6QErb [role="article"]',
+            '[data-place-id]','[data-item-id]','.VkpGBb'
+        ];
         selectors.forEach(function(sel) {
             try {
                 document.querySelectorAll(sel).forEach(function(el) {
                     var name = '';
                     var nameEl = el.querySelector(
-                        '.fontHeadlineSmall,[class*="fontHeadline"],h3,.NrDZNb,.qBF1Pd');
+                        '.fontHeadlineSmall,[class*="fontHeadline"],h3,.NrDZNb,.qBF1Pd,[class*="title"],[class*="name"]');
                     if (nameEl) name = nameEl.textContent.trim();
                     if (!name) name = (el.getAttribute('aria-label') || '').trim();
+                    if (!name) name = (el.getAttribute('data-name') || '').trim();
                     if (name.length < 2 || seen[name]) return;
                     seen[name] = true;
                     var addrEl = el.querySelector(
-                        '.fontBodyMedium,[class*="fontBody"],.W4Efsd,.UaQhfb');
-                    var addr = addrEl ? addrEl.textContent.trim() : '';
-                    places.push({name:name, address:addr, lat:0, lon:0});
+                        '.fontBodyMedium,[class*="fontBody"],.W4Efsd,.UaQhfb,[class*="address"]');
+                    places.push({name:name, address:addrEl ? addrEl.textContent.trim() : '', lat:0, lon:0});
                 });
             } catch(e2) {}
         });
 
+        // Strategy 2: heading elements fallback
         if (places.length === 0) {
-            document.querySelectorAll('h2,h3,[role="heading"]').forEach(function(el) {
+            document.querySelectorAll('h2,h3,h4,[role="heading"]').forEach(function(el) {
                 var name = el.textContent.trim();
                 if (name.length > 2 && name.length < 100 && !seen[name]) {
                     seen[name] = true;
@@ -67,6 +73,23 @@ private val EXTRACTOR_JS = """
             });
         }
 
+        // Strategy 3: parse "name" fields from inline JSON blobs that contain placeId
+        if (places.length === 0) {
+            try {
+                var nameRe = /"name"\s*:\s*"([^"]{2,80})"/g;
+                document.querySelectorAll('script:not([src])').forEach(function(s) {
+                    var t = s.textContent;
+                    if (t.indexOf('placeId') < 0 && t.indexOf('place_id') < 0) return;
+                    var m;
+                    while ((m = nameRe.exec(t)) !== null && places.length < 60) {
+                        var n = m[1];
+                        if (!seen[n]) { seen[n] = true; places.push({name:n, address:'', lat:0, lon:0}); }
+                    }
+                });
+            } catch(e3) {}
+        }
+
+        // Strategy 4: GPS coordinate extraction and assignment
         var coordRe = /(-?\d{1,3}\.\d{5,}),\s*(-?\d{1,3}\.\d{5,})/g;
         var allText = document.documentElement.innerHTML.substring(0, 500000);
         var cm, coords = [], used = {};
@@ -75,13 +98,13 @@ private val EXTRACTOR_JS = """
             var k = la.toFixed(4)+','+lo.toFixed(4);
             if (la>=-90&&la<=90&&lo>=-180&&lo<=180&&!used[k]) { used[k]=true; coords.push([la,lo]); }
         }
-        var ci = 0;
-        for (var i = 0; i < places.length; i++) {
+        for (var i = 0, ci = 0; i < places.length; i++) {
             if (ci < coords.length) { places[i].lat=coords[ci][0]; places[i].lon=coords[ci][1]; ci++; }
         }
-        Android.onResult(JSON.stringify({ok:true, places:places}));
+
+        Android.onResult(JSON.stringify({ok:true, places:places, title:document.title}));
     } catch(e) {
-        Android.onResult(JSON.stringify({ok:false, error:e.toString(), places:[]}));
+        Android.onResult(JSON.stringify({ok:false, error:e.toString(), places:[], title:document.title}));
     }
 })();
 """.trimIndent()
@@ -102,23 +125,22 @@ fun SharedLinkImportScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var places by remember { mutableStateOf<List<ParsedMapPlace>>(emptyList()) }
     var selected by remember { mutableStateOf<Set<Int>>(emptySet()) }
-
-    // Triggers WebView load
     var activeLoadUrl by remember { mutableStateOf<String?>(null) }
 
-    // Parse JSON result from JavaScript
-    fun parseResult(json: String): List<ParsedMapPlace> {
+    fun parseResult(json: String): Pair<List<ParsedMapPlace>, String> {
         return try {
             val root = JSONObject(json)
-            val arr = root.optJSONArray("places") ?: return emptyList()
-            (0 until arr.length()).mapNotNull { i ->
+            val title = root.optString("title", "")
+            val arr = root.optJSONArray("places") ?: return Pair(emptyList(), title)
+            val list = (0 until arr.length()).mapNotNull { i ->
                 val obj = arr.getJSONObject(i)
                 val name = obj.optString("name").trim()
                 if (name.isBlank()) null
                 else ParsedMapPlace(name, obj.optString("address").trim(),
                     obj.optDouble("lat", 0.0), obj.optDouble("lon", 0.0))
             }.distinctBy { it.name }
-        } catch (e: Exception) { emptyList() }
+            Pair(list, title)
+        } catch (e: Exception) { Pair(emptyList(), "") }
     }
 
     Scaffold(
@@ -179,7 +201,6 @@ fun SharedLinkImportScreen(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // How-to
             Card(colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -197,7 +218,6 @@ fun SharedLinkImportScreen(
                 }
             }
 
-            // URL input
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it; errorMessage = null; places = emptyList(); activeLoadUrl = null },
@@ -227,7 +247,6 @@ fun SharedLinkImportScreen(
                 })
             )
 
-            // Load button
             Button(
                 onClick = {
                     if (!isLoading) {
@@ -250,10 +269,12 @@ fun SharedLinkImportScreen(
                 }
             }
 
-            // Hidden WebView – attached to Compose hierarchy so JS works
+            // WebView attached to Compose hierarchy (1dp invisible) so JS executes properly.
+            // Desktop UA avoids "Open in Maps app" interstitials.
+            // shouldOverrideUrlLoading catches intent:// deep-links and loads the fallback https URL.
             if (activeLoadUrl != null) {
                 AndroidView(
-                    modifier = Modifier.size(1.dp), // invisible but attached
+                    modifier = Modifier.size(1.dp),
                     factory = { ctx ->
                         WebView(ctx).apply {
                             settings.apply {
@@ -261,21 +282,21 @@ fun SharedLinkImportScreen(
                                 domStorageEnabled = true
                                 loadsImagesAutomatically = false
                                 blockNetworkImage = true
-                                cacheMode = WebSettings.LOAD_NO_CACHE
                                 userAgentString =
-                                    "Mozilla/5.0 (Linux; Android 13; Pixel 7) " +
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                                     "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                                    "Chrome/124.0.0.0 Mobile Safari/537.36"
+                                    "Chrome/124.0.0.0 Safari/537.36"
                             }
                             addJavascriptInterface(object {
                                 @JavascriptInterface
                                 fun onResult(json: String) {
-                                    val parsed = parseResult(json)
+                                    val (parsed, title) = parseResult(json)
                                     post {
                                         activeLoadUrl = null
                                         isLoading = false
                                         if (parsed.isEmpty()) {
-                                            errorMessage = "Mista nenalezena. Zkuste jiny odkaz nebo pouzijte Takeout import."
+                                            val hint = if (title.isNotBlank()) " (stranka: $title)" else ""
+                                            errorMessage = "Mista nenalezena$hint. Zkuste jiny odkaz nebo pouzijte Takeout import."
                                         } else {
                                             places = parsed
                                             selected = parsed.indices.toSet()
@@ -285,11 +306,40 @@ fun SharedLinkImportScreen(
                                 }
                             }, "Android")
                             webViewClient = object : WebViewClient() {
+                                // Intercept intent:// deep-links (maps.app.goo.gl redirects to these on Android).
+                                // Extract browser_fallback_url and load that instead.
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView, request: WebResourceRequest
+                                ): Boolean {
+                                    val u = request.url.toString()
+                                    if (u.startsWith("intent://")) {
+                                        try {
+                                            val fallbackEncoded = Regex("""S\.browser_fallback_url=([^;]+)""")
+                                                .find(u)?.groupValues?.get(1)
+                                            if (fallbackEncoded != null) {
+                                                view.loadUrl(URLDecoder.decode(fallbackEncoded, "UTF-8"))
+                                            } else {
+                                                // Fallback: strip intent scheme and use https
+                                                val path = u.removePrefix("intent://").substringBefore("#")
+                                                view.loadUrl("https://$path")
+                                            }
+                                        } catch (e: Exception) { /* ignore */ }
+                                        return true
+                                    }
+                                    return false
+                                }
+
+                                // Use a counter so only the LAST finished page triggers extraction.
+                                // This handles multi-step redirects correctly.
+                                private var loadSeq = 0
                                 override fun onPageFinished(view: WebView, url: String) {
-                                    // Wait 6s for JS to render the page fully
+                                    loadSeq++
+                                    val seq = loadSeq
                                     view.postDelayed({
-                                        view.evaluateJavascript(EXTRACTOR_JS, null)
-                                    }, 6000L)
+                                        if (loadSeq == seq) {
+                                            view.evaluateJavascript(EXTRACTOR_JS, null)
+                                        }
+                                    }, 12000L)
                                 }
                             }
                             loadUrl(activeLoadUrl!!)
@@ -298,7 +348,6 @@ fun SharedLinkImportScreen(
                 )
             }
 
-            // Error
             errorMessage?.let { err ->
                 Card(colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -315,7 +364,6 @@ fun SharedLinkImportScreen(
                 }
             }
 
-            // Results
             if (places.isNotEmpty()) {
                 Text("Nalezeno ${places.size} mist – vyberte ktera chcete pridat:",
                     style = MaterialTheme.typography.bodyMedium)
