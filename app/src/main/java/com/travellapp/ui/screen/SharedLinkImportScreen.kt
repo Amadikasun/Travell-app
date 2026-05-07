@@ -24,7 +24,9 @@ import com.travellapp.ui.viewmodel.TripViewModel
 import com.travellapp.util.GoogleMapsListParser
 import com.travellapp.util.ParsedMapPlace
 import com.travellapp.util.TakeoutPlace
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -169,13 +171,13 @@ fun SharedLinkImportScreen(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = {
                     if (url.isNotBlank() && !isLoading) {
-                        scope.launch {
+                        scope.launch(Dispatchers.Main) {
                             isLoading = true
                             errorMessage = null
                             places = emptyList()
                             val parsed = GoogleMapsListParser.parse(context, url.trim())
                             if (parsed.isEmpty()) {
-                                errorMessage = "Nepodařilo se načíst místa. Zkontrolujte prosím odkaz a zkuste znovu."
+                                errorMessage = "Nepodařilo se načíst místa. Zkontrolujte odkaz a zkuste znovu."
                             } else {
                                 places = parsed
                                 selected = parsed.indices.toSet()
@@ -189,13 +191,13 @@ fun SharedLinkImportScreen(
             // Load button
             Button(
                 onClick = {
-                    scope.launch {
+                    scope.launch(Dispatchers.Main) {
                         isLoading = true
                         errorMessage = null
                         places = emptyList()
                         val parsed = GoogleMapsListParser.parse(context, url.trim())
                         if (parsed.isEmpty()) {
-                            errorMessage = "Nepodařilo se načíst místa ze zadaného odkazu.\n\nZkontrolujte, zda:\n• Je odkaz správně zkopírovaný\n• Je seznam veřejně sdílený\n• Máte připojení k internetu"
+                            errorMessage = "Nepodařilo se načíst místa.\n\nZkontrolujte, zda:\n• Je odkaz správně zkopírovaný\n• Je seznam nastaven jako Sdíleno (ne Soukromé)\n• Máte připojení k internetu\n\nPokud problém přetrvává, použijte import ze souboru (Takeout)."
                         } else {
                             places = parsed
                             selected = parsed.indices.toSet()
